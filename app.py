@@ -17,7 +17,7 @@ from google.oauth2.service_account import Credentials
 IS_ADMIN = st.query_params.get("admin", "") == "true"
 
 st.set_page_config(
-    page_title="2026 토요상설공연 만족도 조사",
+    page_title="만족도조사",
     page_icon="📱",
     layout="centered",
     initial_sidebar_state="expanded" if IS_ADMIN else "collapsed",
