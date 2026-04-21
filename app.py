@@ -39,7 +39,7 @@ LOG_SHEET_NAME = "SMS_발송기록"
 CONF_SHEET_NAME = "SMS_설정"
 LOG_COLS = ["일시", "전화번호", "결과"]
 
-PPURIO_BASE = "https://api.bizppurio.com"
+PPURIO_BASE = "https://message.ppurio.com"
 MSG_TEMPLATE = "[광주문화재단] 토요상설공연 만족도 조사에 참여해 주세요.\n{link}"
 
 
@@ -60,17 +60,15 @@ def ppurio_auth():
     try:
         res = requests.post(
             f"{PPURIO_BASE}/v1/token",
-            headers={
-                "Authorization": f"Basic {token_str}",
-                "Content-Type": "application/json; charset=utf-8",
-            },
+            headers={"Authorization": f"Basic {token_str}"},
+            json={"grantType": "clientCredentials"},
             timeout=10,
         )
     except Exception as e:
         return None, f"네트워크 오류: {e}"
     if res.status_code == 200:
         data = res.json()
-        return data.get("accesstoken"), None
+        return data.get("token"), None
     return None, f"인증 실패 HTTP {res.status_code}: {res.text[:200]}"
 
 
@@ -79,22 +77,19 @@ def ppurio_send(token, phone, text):
     userid = st.secrets.get("ppurio_userid", "")
     body = {
         "account": userid,
-        "type": "SMS",
+        "messageType": "SMS",
         "from": sender,
-        "to": clean_phone(phone),
-        "content": {
-            "sms": {
-                "message": text,
-            }
-        },
-        "refkey": "",
+        "content": text,
+        "duplicateFlag": "Y",
+        "targetCount": 1,
+        "targets": [{"to": clean_phone(phone)}],
     }
     try:
         res = requests.post(
-            f"{PPURIO_BASE}/v3/message",
+            f"{PPURIO_BASE}/v1/message",
             headers={
                 "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json; charset=utf-8",
+                "Content-Type": "application/json",
             },
             json=body,
             timeout=10,
