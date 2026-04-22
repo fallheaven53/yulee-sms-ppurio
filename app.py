@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-율이공방 — 만족도 조사 문자 발송 웹앱 (뿌리오 API)
-현장 태블릿에서 번호 입력 → 뿌리오 API 직접 호출 → 즉시 발송
+율이공방 — 만족도 조사 문자 발송 웹앱 (GCP Cloud Function 릴레이)
+현장 태블릿에서 번호 입력 → Cloud Function(고정IP) → 뿌리오 API → 즉시 발송
 """
 
-import base64
 import re
 import time
 from datetime import datetime
@@ -39,7 +38,7 @@ LOG_SHEET_NAME = "SMS_발송기록"
 CONF_SHEET_NAME = "SMS_설정"
 LOG_COLS = ["일시", "전화번호", "결과"]
 
-PPURIO_BASE = "https://message.ppurio.com"
+RELAY_URL = "https://asia-northeast3-nice-abbey-473900-e6.cloudfunctions.net/sms-relay"
 MSG_TEMPLATE = "[광주문화재단] 토요상설공연 만족도 조사에 참여해 주세요.\n{link}"
 
 
@@ -48,65 +47,28 @@ def clean_phone(phone):
 
 
 # ══════════════════════════════════════════════════════════════
-#  뿌리오 API
+#  SMS 발송 (GCP Cloud Function 릴레이)
 # ══════════════════════════════════════════════════════════════
 
-def ppurio_auth():
-    userid = st.secrets.get("ppurio_userid", "")
-    password = st.secrets.get("ppurio_password", "")
-    if not userid or not password:
-        return None, "뿌리오 인증정보 미설정"
-    token_str = base64.b64encode(f"{userid}:{password}".encode()).decode()
-    try:
-        res = requests.post(
-            f"{PPURIO_BASE}/v1/token",
-            headers={"Authorization": f"Basic {token_str}"},
-            json={"grantType": "clientCredentials"},
-            timeout=10,
-        )
-    except Exception as e:
-        return None, f"네트워크 오류: {e}"
-    if res.status_code == 200:
-        data = res.json()
-        return data.get("token"), None
-    return None, f"인증 실패 HTTP {res.status_code}: {res.text[:200]}"
-
-
-def ppurio_send(token, phone, text):
-    sender = clean_phone(st.secrets.get("ppurio_sender", ""))
-    userid = st.secrets.get("ppurio_userid", "")
-    body = {
-        "account": userid,
-        "messageType": "SMS",
-        "from": sender,
-        "content": text,
-        "duplicateFlag": "Y",
-        "targetCount": 1,
-        "targets": [{"to": clean_phone(phone)}],
-    }
-    try:
-        res = requests.post(
-            f"{PPURIO_BASE}/v1/message",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-            timeout=10,
-        )
-    except Exception as e:
-        return False, f"발송 요청 실패: {e}"
-    if res.status_code == 200:
-        return True, "성공"
-    return False, f"HTTP {res.status_code}: {res.text[:200]}"
-
-
 def send_sms(phone, link):
-    token, err = ppurio_auth()
-    if err:
-        return False, err
+    relay_token = st.secrets.get("relay_auth_token", "")
     text = MSG_TEMPLATE.format(link=link)
-    return ppurio_send(token, phone, text)
+    try:
+        res = requests.post(
+            RELAY_URL,
+            json={
+                "auth_token": relay_token,
+                "to": clean_phone(phone),
+                "message": text,
+            },
+            timeout=15,
+        )
+    except Exception as e:
+        return False, f"네트워크 오류: {e}"
+    data = res.json()
+    if data.get("success"):
+        return True, "성공"
+    return False, data.get("message", f"HTTP {res.status_code}")
 
 
 # ══════════════════════════════════════════════════════════════
